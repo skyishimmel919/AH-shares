@@ -196,6 +196,20 @@ def max_drawdown(values) -> float:
     return float(np.min(arr - np.maximum.accumulate(arr)))
 
 
+def max_percentage_drawdown(values) -> float:
+    arr = np.asarray(values, dtype=float)
+    if len(arr) == 0:
+        return 0.0
+    equity = 1.0 + arr
+    peak = np.maximum.accumulate(equity)
+    valid = peak > 0
+    if not np.any(valid):
+        return np.nan
+    dd = np.full(len(equity), np.nan)
+    dd[valid] = equity[valid] / peak[valid] - 1.0
+    return float(np.nanmin(dd))
+
+
 def curve_performance(values) -> dict[str, float]:
     arr = np.asarray(values, dtype=float)
     if len(arr) == 0:
@@ -215,6 +229,7 @@ def curve_performance(values) -> dict[str, float]:
     downside = diffs[diffs < 0]
     downside_vol = float(np.std(downside, ddof=1) * np.sqrt(BARS_PER_DAY * TRADING_DAYS_PER_YEAR)) if len(downside) > 1 else np.nan
     mdd = max_drawdown(arr)
+    pct_mdd = max_percentage_drawdown(arr)
     return {
         "final_return": float(arr[-1]),
         "annualized_return": ann_return,
@@ -222,7 +237,11 @@ def curve_performance(values) -> dict[str, float]:
         "sharpe": float(ann_return / ann_vol) if ann_vol and np.isfinite(ann_vol) else np.nan,
         "sortino": float(ann_return / downside_vol) if downside_vol and np.isfinite(downside_vol) else np.nan,
         "calmar": float(ann_return / abs(mdd)) if mdd < 0 else np.nan,
+        "calmar_pct_dd": float(ann_return / abs(pct_mdd)) if pct_mdd < 0 else np.nan,
+        "return_over_abs_maxdd": float(arr[-1] / abs(mdd)) if mdd < 0 else np.nan,
+        "return_over_abs_max_pct_dd": float(arr[-1] / abs(pct_mdd)) if pct_mdd < 0 else np.nan,
         "max_drawdown": mdd,
+        "max_pct_drawdown": pct_mdd,
     }
 
 
@@ -471,11 +490,15 @@ def backtest_rf_real_pnl(symbol: str, df: pd.DataFrame, fill_mode: str, cfg: Con
         "short_net_return_50bp": float(side_realized["short_residual"][50]),
         "max_drawdown": max_drawdown(gross_arr),
         "net50_max_drawdown": net50_perf["max_drawdown"],
+        "net50_max_pct_drawdown": net50_perf["max_pct_drawdown"],
         "annualized_return_net50": net50_perf["annualized_return"],
         "annualized_vol_net50": net50_perf["annualized_vol"],
         "sharpe_net50": net50_perf["sharpe"],
         "sortino_net50": net50_perf["sortino"],
         "calmar_net50": net50_perf["calmar"],
+        "calmar_pct_dd_net50": net50_perf["calmar_pct_dd"],
+        "return_over_abs_maxdd_net50": net50_perf["return_over_abs_maxdd"],
+        "return_over_abs_max_pct_dd_net50": net50_perf["return_over_abs_max_pct_dd"],
         "long_max_drawdown": max_drawdown(side_gross_curves["long_residual"]),
         "short_max_drawdown": max_drawdown(side_gross_curves["short_residual"]),
         "avg_hold_bars": float(np.mean([t["holding_bars"] for t in trades])) if trades else 0.0,

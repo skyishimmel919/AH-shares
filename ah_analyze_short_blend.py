@@ -10,6 +10,17 @@ def max_dd(arr):
     arr=np.asarray(arr,float)
     return float(np.min(arr-np.maximum.accumulate(arr))) if len(arr) else 0.0
 
+def max_pct_dd(arr):
+    arr=np.asarray(arr,float)
+    if not len(arr): return 0.0
+    equity=1.0+arr
+    peak=np.maximum.accumulate(equity)
+    valid=peak>0
+    if not np.any(valid): return np.nan
+    dd=np.full(len(arr), np.nan)
+    dd[valid]=equity[valid]/peak[valid]-1.0
+    return float(np.nanmin(dd))
+
 def perf(arr):
     arr=np.asarray(arr,float)
     diff=np.diff(arr, prepend=0.0)
@@ -17,6 +28,7 @@ def perf(arr):
     ann_ret=arr[-1]/years if years>0 else np.nan
     ann_vol=np.std(diff, ddof=1)*np.sqrt(BARS_PER_DAY*DAYS_PER_YEAR) if len(diff)>1 else np.nan
     dd=max_dd(arr)
+    pct_dd=max_pct_dd(arr)
     return {
         'final_return_50bp': float(arr[-1]),
         'final_pnl_cny_50bp': float(arr[-1]*100000),
@@ -24,7 +36,11 @@ def perf(arr):
         'annualized_vol': float(ann_vol),
         'sharpe': float(ann_ret/ann_vol) if ann_vol and np.isfinite(ann_vol) else np.nan,
         'max_drawdown': dd,
+        'max_pct_drawdown': pct_dd,
+        'return_over_abs_maxdd': float(arr[-1]/abs(dd)) if dd<0 else np.nan,
+        'return_over_abs_max_pct_dd': float(arr[-1]/abs(pct_dd)) if pct_dd<0 else np.nan,
         'calmar': float(ann_ret/abs(dd)) if dd<0 else np.nan,
+        'calmar_pct_dd': float(ann_ret/abs(pct_dd)) if pct_dd<0 else np.nan,
     }
 
 pkg=Path.home()/'temp/ah_shares_run/output/real_fill_full_100k_lot100_package_20250401_20260421'
@@ -60,7 +76,7 @@ print('rows', len(out), 'symbols', out.symbol.nunique())
 for v in ['short_theoretical','short_with_a_inventory','short_with_ah_inventory','short_blend_50_50']:
     g=out[out.variant==v]
     print('\n',v)
-    print(g[['final_pnl_cny_50bp','sharpe','max_drawdown']].describe(percentiles=[.1,.25,.5,.75,.9]).to_string())
+    print(g[['final_pnl_cny_50bp','sharpe','max_drawdown','max_pct_drawdown','return_over_abs_max_pct_dd']].describe(percentiles=[.1,.25,.5,.75,.9]).to_string())
 print('\nTOP_BLEND')
 print(out[out.variant=='short_blend_50_50'].sort_values('final_pnl_cny_50bp', ascending=False).head(15).to_string(index=False))
 # Compare blend between 2b and 2c final pnl exactly count

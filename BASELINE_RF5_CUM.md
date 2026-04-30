@@ -521,6 +521,32 @@ days per year:
 bars_per_year = 16 * 252
 ```
 
+Drawdown metrics:
+
+```text
+max_drawdown:
+    Absolute drawdown of the cumulative return curve.
+    Example: -1.0 means -100k CNY from a previous curve high when
+    base_notional_cny = 100k.
+
+max_pct_drawdown:
+    Percentage drawdown of the equity curve:
+        equity = 1 + cumulative_return
+        max_pct_drawdown = equity / rolling_peak_equity - 1
+    This distinguishes an early -1.0 absolute drawdown, which is effectively
+    a 100% capital drawdown, from a late -1.0 drawdown after the curve has
+    already compounded several notional units of profit.
+
+return_over_abs_maxdd:
+    final_return / abs(max_drawdown)
+
+return_over_abs_max_pct_dd:
+    final_return / abs(max_pct_drawdown)
+
+calmar_pct_dd:
+    annualized_return / abs(max_pct_drawdown)
+```
+
 Cached-value check on `backtestingsheet3000(3).xlsm`:
 
 The formula looks beta-hedged, but the cached workbook values show it was almost

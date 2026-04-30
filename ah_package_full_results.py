@@ -19,6 +19,20 @@ def max_drawdown(values: pd.Series) -> float:
     return float(np.min(arr - np.maximum.accumulate(arr)))
 
 
+def max_percentage_drawdown(values: pd.Series) -> float:
+    arr = values.to_numpy(float)
+    if len(arr) == 0:
+        return 0.0
+    equity = 1.0 + arr
+    peak = np.maximum.accumulate(equity)
+    valid = peak > 0
+    if not np.any(valid):
+        return np.nan
+    dd = np.full(len(equity), np.nan)
+    dd[valid] = equity[valid] / peak[valid] - 1.0
+    return float(np.nanmin(dd))
+
+
 def curve_perf(values: pd.Series) -> dict[str, float]:
     arr = values.to_numpy(float)
     if len(arr) == 0:
@@ -32,11 +46,17 @@ def curve_perf(values: pd.Series) -> dict[str, float]:
     years = len(arr) / 16 / 252
     ann_ret = arr[-1] / years if years else np.nan
     ann_vol = np.std(diff, ddof=1) * np.sqrt(16 * 252) if len(diff) > 1 else np.nan
+    mdd = max_drawdown(pd.Series(arr))
+    pct_mdd = max_percentage_drawdown(pd.Series(arr))
     return {
         "final_return": float(arr[-1]),
         "final_pnl_cny": float(arr[-1] * 100000.0),
         "sharpe": float(ann_ret / ann_vol) if ann_vol and np.isfinite(ann_vol) else np.nan,
-        "max_drawdown": max_drawdown(pd.Series(arr)),
+        "max_drawdown": mdd,
+        "max_pct_drawdown": pct_mdd,
+        "return_over_abs_maxdd": float(arr[-1] / abs(mdd)) if mdd < 0 else np.nan,
+        "return_over_abs_max_pct_dd": float(arr[-1] / abs(pct_mdd)) if pct_mdd < 0 else np.nan,
+        "calmar_pct_dd": float(ann_ret / abs(pct_mdd)) if pct_mdd < 0 else np.nan,
     }
 
 
@@ -154,6 +174,10 @@ def build_ranking(d: dict[str, pd.DataFrame]) -> pd.DataFrame:
                         f"{prefix}_cross_sharpe": safe_float(cc["sharpe"]),
                         f"{prefix}_cross_sortino": safe_float(cc["sortino"]),
                         f"{prefix}_cross_calmar": safe_float(cc["calmar"]),
+                        f"{prefix}_cross_max_pct_drawdown": safe_float(cc.get("max_pct_drawdown", np.nan)),
+                        f"{prefix}_cross_return_over_abs_maxdd": safe_float(cc.get("return_over_abs_maxdd", np.nan)),
+                        f"{prefix}_cross_return_over_abs_max_pct_dd": safe_float(cc.get("return_over_abs_max_pct_dd", np.nan)),
+                        f"{prefix}_cross_calmar_pct_dd": safe_float(cc.get("calmar_pct_dd", np.nan)),
                         f"{prefix}_cross_annualized_return": safe_float(cc["annualized_return"]),
                         f"{prefix}_cross_annualized_vol": safe_float(cc["annualized_vol"]),
                     }
@@ -224,22 +248,38 @@ def build_comments(ranking: pd.DataFrame, monthly: pd.DataFrame) -> pd.DataFrame
     return pd.DataFrame(comments)
 
 
-def add_short_blend_metrics(ranking: pd.DataFrame, pnl: pd.DataFrame) -> pd.DataFrame:
+def add_curve_metrics_from_pnl(ranking: pd.DataFrame, pnl: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for symbol, g0 in pnl[pnl["fill_mode"] == PRIMARY_FILL_MODE].groupby("symbol", sort=True):
         g = g0.sort_values("Time")
-        blend = 0.5 * g["short_with_a_inventory_net_curve_50bp"] + 0.5 * g["short_with_ah_inventory_net_curve_50bp"]
-        p = curve_perf(blend)
-        rows.append(
-            {
-                "symbol": symbol,
-                "short_blend_50_50_cross_net50_pnl_cny": p["final_pnl_cny"],
-                "short_blend_50_50_cross_net50_return": p["final_return"],
-                "short_blend_50_50_cross_sharpe": p["sharpe"],
-                "short_blend_50_50_cross_max_drawdown": p["max_drawdown"],
-            }
-        )
-    return ranking.merge(pd.DataFrame(rows), on="symbol", how="left")
+        curves = {
+            "long": g["long_side_net_curve_50bp"],
+            "short_a_inv": g["short_with_a_inventory_net_curve_50bp"],
+            "short_ah_inv": g["short_with_ah_inventory_net_curve_50bp"],
+            "short_blend_50_50": 0.5 * g["short_with_a_inventory_net_curve_50bp"]
+            + 0.5 * g["short_with_ah_inventory_net_curve_50bp"],
+        }
+        row = {"symbol": symbol}
+        for prefix, series in curves.items():
+            p = curve_perf(series)
+            row.update(
+                {
+                    f"{prefix}_cross_net50_pnl_cny": p["final_pnl_cny"],
+                    f"{prefix}_cross_net50_return": p["final_return"],
+                    f"{prefix}_cross_sharpe": p["sharpe"],
+                    f"{prefix}_cross_max_drawdown": p["max_drawdown"],
+                    f"{prefix}_cross_max_pct_drawdown": p["max_pct_drawdown"],
+                    f"{prefix}_cross_return_over_abs_maxdd": p["return_over_abs_maxdd"],
+                    f"{prefix}_cross_return_over_abs_max_pct_dd": p["return_over_abs_max_pct_dd"],
+                    f"{prefix}_cross_calmar_pct_dd": p["calmar_pct_dd"],
+                }
+            )
+        rows.append(row)
+    metrics = pd.DataFrame(rows)
+    overlap = [c for c in metrics.columns if c in ranking.columns and c != "symbol"]
+    if overlap:
+        ranking = ranking.drop(columns=overlap)
+    return ranking.merge(metrics, on="symbol", how="left")
 
 
 def write_pair_folders(run_dir: Path, package_dir: Path, d: dict[str, pd.DataFrame]) -> None:
@@ -309,7 +349,7 @@ def main() -> None:
 
     d = load_inputs(args.run_dir)
     ranking = build_ranking(d)
-    ranking = add_short_blend_metrics(ranking, d["pnl"])
+    ranking = add_curve_metrics_from_pnl(ranking, d["pnl"])
     comments = build_comments(ranking, d["monthly"])
 
     ranking.to_csv(args.package_dir / "universe_ranking.csv", index=False)
