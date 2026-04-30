@@ -1,0 +1,41 @@
+# Python/runtime artifacts
+.venv/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Office lock files
+~$*
+
+# Large/generated market-data and backtest outputs
+AH file/**
+!AH file/
+!AH file/data/
+!AH file/data/*.csv
+!AH file/data/*.md
+
+# Archives and binary snapshots
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.rar
+*.7z
+*.b64
+*.parquet
+*.exe
+
+# Legacy SpreadTrader binary/data snapshots
+spreadtrader/**
+!spreadtrader/
+!spreadtrader/*.bas
+!spreadtrader/*.bat
+
+# Generated charts
+*.png
+*.jpg
+*.jpeg
+
+# Local logs/temp files
+*.log
+*.tmp
