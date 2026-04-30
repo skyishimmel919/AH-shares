@@ -476,6 +476,14 @@ short_with_ah_inventory:
     trading PnL. This approximates:
         normal state = long A / short H
         short-spread signal state = flat
+
+short_blend_50_50:
+    50% short_with_a_inventory + 50% short_with_ah_inventory.
+    The combined inventory is approximately:
+        long 1.0 A, short 0.5 H
+    This keeps one A-share unit available to implement the sell-A/buy-H
+    short-spread trade while reducing the pure A-share beta exposure embedded
+    in the A-inventory-only approach.
 ```
 
 Risk and holding-period reporting:

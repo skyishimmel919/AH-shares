@@ -19,6 +19,27 @@ def max_drawdown(values: pd.Series) -> float:
     return float(np.min(arr - np.maximum.accumulate(arr)))
 
 
+def curve_perf(values: pd.Series) -> dict[str, float]:
+    arr = values.to_numpy(float)
+    if len(arr) == 0:
+        return {
+            "final_return": np.nan,
+            "final_pnl_cny": np.nan,
+            "sharpe": np.nan,
+            "max_drawdown": np.nan,
+        }
+    diff = np.diff(arr, prepend=0.0)
+    years = len(arr) / 16 / 252
+    ann_ret = arr[-1] / years if years else np.nan
+    ann_vol = np.std(diff, ddof=1) * np.sqrt(16 * 252) if len(diff) > 1 else np.nan
+    return {
+        "final_return": float(arr[-1]),
+        "final_pnl_cny": float(arr[-1] * 100000.0),
+        "sharpe": float(ann_ret / ann_vol) if ann_vol and np.isfinite(ann_vol) else np.nan,
+        "max_drawdown": max_drawdown(pd.Series(arr)),
+    }
+
+
 def safe_float(value) -> float:
     if pd.isna(value):
         return np.nan
@@ -194,12 +215,31 @@ def build_comments(ranking: pd.DataFrame, monthly: pd.DataFrame) -> pd.DataFrame
             ("long_side_net50", "long side"),
             ("short_with_a_inventory_net50", "short with A inventory"),
             ("short_with_ah_inventory_net50", "short with AH inventory"),
+            ("short_blend_50_50_net50", "short blend 50/50"),
         ]:
             conc = monthly_concentration(monthly, symbol, curve)
             if pd.notna(conc) and conc > 0.45:
                 add(symbol, "monthly pnl too concentrated", "medium", f"{label} max abs monthly pnl share={conc:.2%}")
 
     return pd.DataFrame(comments)
+
+
+def add_short_blend_metrics(ranking: pd.DataFrame, pnl: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for symbol, g0 in pnl[pnl["fill_mode"] == PRIMARY_FILL_MODE].groupby("symbol", sort=True):
+        g = g0.sort_values("Time")
+        blend = 0.5 * g["short_with_a_inventory_net_curve_50bp"] + 0.5 * g["short_with_ah_inventory_net_curve_50bp"]
+        p = curve_perf(blend)
+        rows.append(
+            {
+                "symbol": symbol,
+                "short_blend_50_50_cross_net50_pnl_cny": p["final_pnl_cny"],
+                "short_blend_50_50_cross_net50_return": p["final_return"],
+                "short_blend_50_50_cross_sharpe": p["sharpe"],
+                "short_blend_50_50_cross_max_drawdown": p["max_drawdown"],
+            }
+        )
+    return ranking.merge(pd.DataFrame(rows), on="symbol", how="left")
 
 
 def write_pair_folders(run_dir: Path, package_dir: Path, d: dict[str, pd.DataFrame]) -> None:
@@ -231,6 +271,15 @@ def write_pair_folders(run_dir: Path, package_dir: Path, d: dict[str, pd.DataFra
 def write_portfolio_inputs(package_dir: Path, pnl: pd.DataFrame) -> None:
     out = package_dir / "portfolio_inputs"
     out.mkdir(parents=True, exist_ok=True)
+    pnl = pnl.copy()
+    pnl["short_blend_50_50_net_curve_50bp"] = (
+        0.5 * pnl["short_with_a_inventory_net_curve_50bp"]
+        + 0.5 * pnl["short_with_ah_inventory_net_curve_50bp"]
+    )
+    pnl["short_blend_50_50_net_curve_50bp_cny"] = (
+        0.5 * pnl["short_with_a_inventory_net_curve_50bp_cny"]
+        + 0.5 * pnl["short_with_ah_inventory_net_curve_50bp_cny"]
+    )
     cols = [
         "Time",
         "symbol",
@@ -238,9 +287,11 @@ def write_portfolio_inputs(package_dir: Path, pnl: pd.DataFrame) -> None:
         "long_side_net_curve_50bp",
         "short_with_a_inventory_net_curve_50bp",
         "short_with_ah_inventory_net_curve_50bp",
+        "short_blend_50_50_net_curve_50bp",
         "long_side_net_curve_cny_50bp",
         "short_with_a_inventory_net_curve_50bp_cny",
         "short_with_ah_inventory_net_curve_50bp_cny",
+        "short_blend_50_50_net_curve_50bp_cny",
     ]
     keep = [c for c in cols if c in pnl.columns]
     pnl.loc[pnl["fill_mode"] == PRIMARY_FILL_MODE, keep].to_parquet(out / "cross_fill_portfolio_curves.parquet", index=False)
@@ -258,6 +309,7 @@ def main() -> None:
 
     d = load_inputs(args.run_dir)
     ranking = build_ranking(d)
+    ranking = add_short_blend_metrics(ranking, d["pnl"])
     comments = build_comments(ranking, d["monthly"])
 
     ranking.to_csv(args.package_dir / "universe_ranking.csv", index=False)
@@ -278,6 +330,9 @@ def main() -> None:
     )
     ranking.sort_values("short_ah_inv_cross_net50_pnl_cny", ascending=False).to_csv(
         rankings_dir / "short_with_ah_inventory_cross_fill_net50.csv", index=False
+    )
+    ranking.sort_values("short_blend_50_50_cross_net50_pnl_cny", ascending=False).to_csv(
+        rankings_dir / "short_blend_50_50_cross_fill_net50.csv", index=False
     )
 
     write_pair_folders(args.run_dir, args.package_dir, d)
