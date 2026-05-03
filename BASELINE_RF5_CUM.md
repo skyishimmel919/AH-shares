@@ -687,10 +687,25 @@ This means later differences are intentional definition changes, not code drift.
 
 ## Next Work
 
-Recommended next steps:
+The Phase 1 baseline reconstruction is complete enough for research use. The
+full AH universe has already been run with `mid_fill` and `cross_fill`, and the
+current priority is no longer legacy replication.
 
-1. Run the full AH universe with the current `mid_fill` and `cross_fill` modes.
-2. Add optional `confirmation_bars = 2`.
-3. Add `next_bar_mid` execution mode for a more conservative no-lookahead fill assumption.
-4. Use the trade log to analyze concentration, MAE/MFE, holding time, and per-symbol stability.
-5. Add out-of-sample splits before doing broader parameter sweeps.
+Continue from:
+
+```text
+AH_PHASE2_HANDOFF.md
+```
+
+Phase 2 priorities:
+
+1. First-half ranking and second-half out-of-sample validation.
+2. Rolling 3-month top-N selection and portfolio curves.
+3. Ratio mean-reversion feature table.
+4. Feature-to-future-PnL / Sharpe / drawdown relationship tests.
+5. Portfolio construction around `long_side`, `pure_short_side`, and
+   `short_blend_50_50`.
+
+Keep optional execution refinements such as `confirmation_bars = 2`,
+`next_bar_mid`, and `join_h_then_join_a_fill` as later work. They should not
+block the Phase 2 selection and OOS validation work.
